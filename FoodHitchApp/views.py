@@ -608,14 +608,12 @@ def otp_verification(request):
     return render(request, 'otp_verification.html')
 
 def customer_base(request):
-    return render(request, "customer_base.html")@login_required
+    return render(request, "customer_base.html")
+
+@login_required
 def customer_track_order(request):
     # Fetch all delivery information, excluding deliveries with status 'Received'
     deliveries = Delivery.objects.select_related('RiderID', 'RestaurantID').exclude(DeliveryStatus='Received')
-
-    # Check if any deliveries exist
-    if not deliveries.exists():
-        messages.info(request, "No deliveries available for tracking.")
 
     # Pass the filtered deliveries to the template
     return render(request, 'customer_track_order.html', {'deliveries': deliveries})
@@ -751,6 +749,7 @@ def rider_earnings(request):
     }
 
     return render(request, 'rider_earnings.html', context)
+
 @login_required
 def update_rider_profile(request):
     # Retrieve notifications from the session
@@ -1304,6 +1303,7 @@ def reject_feedback(request, feedback_id):
     feedback.Status = 'rejected'
     feedback.save()
     return redirect('admin_feedback_list')
+
 @login_required
 def check_out(request):
     customer = request.user.customer
@@ -1369,28 +1369,28 @@ def calculate_delivery_fee(request):
 
     return JsonResponse({'delivery_fee': delivery_fee})
 
+
 @login_required
 def place_order(request):
     if request.method == 'POST':
         customer = request.user.customer
         cart_items = CartItem.objects.filter(CustomerID=customer)
 
-        # Check if the customer has any pending deliveries
+        # Check for pending deliveries
         if Delivery.objects.filter(CustomerID=customer, DeliveryStatus='Pending').exists():
             messages.error(request, "You cannot place an order while you have a pending delivery.")
             return redirect('customer_home')
 
+        # Validate cart items and restaurant consistency
         if not cart_items.exists():
             messages.error(request, "Your cart is empty! Can't place an order.")
             return redirect('customer_home')
-
-        # Check if all cart items are from the same restaurant
         restaurant_ids = {item.FoodID.restaurant.RestaurantID for item in cart_items}
         if len(restaurant_ids) > 1:
             messages.error(request, "You cannot place an order with items from different restaurants.")
             return redirect('customer_home')
 
-        # Get order details from POST data and convert them to Decimal
+        # Retrieve order details
         payment_option = request.POST.get('payment-option')
         address = request.POST.get('address')
         subtotal = Decimal(request.POST.get('subtotal', '0'))
@@ -1401,37 +1401,42 @@ def place_order(request):
             messages.error(request, "Address is required to place an order.")
             return redirect('place_order')
 
-        # Create a single order record
-        total_order_amount = Decimal(0)  # Initialize total amount as Decimal
-        order_details = []
+        # Store the form data in session (convert Decimal to float for JSON compatibility)
+        request.session['order_form_data'] = {
+            'address': address,
+            'city': request.POST.get('city'),
+            'state': request.POST.get('state'),
+            'postal_code': request.POST.get('postal-code'),
+            'payment_option': payment_option,
+            'subtotal': float(subtotal),  # Convert Decimal to float
+            'delivery_fee': float(delivery_fee),  # Convert Decimal to float
+            'total_amount': float(total_amount)  # Convert Decimal to float
+        }
 
-        # Create the order with a zero amount to finalize later
-        order = Order(
-            CustomerID=customer,
-            OrderTotal=total_order_amount,
-            Date=timezone.now(),
-            TransactionID='',
-        )
+        # Create initial order
+        order = Order(CustomerID=customer, OrderTotal=0, Date=timezone.now(), TransactionID='')
         order.save()
 
-        # Loop through cart items to calculate total order amount and details
+        # Calculate total order amount
+        total_order_amount = Decimal(0)
+        order_details = []
         for item in cart_items:
-            item_total = Decimal(item.Quantity) * item.FoodID.Price  # Ensure calculation uses Decimal
+            item_total = Decimal(item.Quantity) * item.FoodID.Price
             total_order_amount += item_total
             order_details.append(f"{item.FoodID.FoodName} (Quantity: {item.Quantity})")
 
-        # Finalize order total after adding all cart items
+        # Update order total
         order.OrderTotal = total_order_amount
         order.save()
 
-        # Calculate the total payable amount (subtotal + delivery fee)
+        # Calculate total payable amount
         total_amount = total_order_amount + delivery_fee
 
-        # Handle payment options
+        # Handle payment option with PayPal (if applicable)
         if payment_option == 'paypal':
             paypal_dict = {
                 'business': settings.PAYPAL_RECEIVER_EMAIL,
-                'amount': total_amount,  # Use Decimal for accurate calculation
+                'amount': total_amount,
                 'item_name': f'Order from {customer.CustomerName}',
                 'invoice': order.OrderID,
                 'notify_url': request.build_absolute_uri('/paypal-ipn/'),
@@ -1443,12 +1448,14 @@ def place_order(request):
             form = PayPalPaymentsForm(initial=paypal_dict)
             rendered_form = form.render()
 
-        # Create a delivery record for the order
-        rider = order.get_assigned_rider()  # Assuming method to get assigned rider
-        if rider is not None:
+        # Attempt to assign a rider with Availability "available" and Status "accepted"
+        available_rider = Rider.objects.filter(Availability="available", Status="accepted").first()
+
+        if available_rider:
+            # Create delivery record
             delivery = Delivery.objects.create(
                 CustomerID=customer,
-                RiderID=rider,
+                RiderID=available_rider,
                 RestaurantID=cart_items.first().FoodID.restaurant,
                 Address=address,
                 OrderTotal=total_order_amount,
@@ -1458,18 +1465,14 @@ def place_order(request):
                 OrderID=order
             )
 
-            # Create delivery items for each cart item
+            # Create delivery items
             for item in cart_items:
-                DeliveryItem.objects.create(
-                    Delivery=delivery,
-                    FoodID=item.FoodID,
-                    Quantity=item.Quantity
-                )
+                DeliveryItem.objects.create(Delivery=delivery, FoodID=item.FoodID, Quantity=item.Quantity)
 
-            # Notify rider via email
-            rider_email = rider.user.email
+            # Notify rider
+            rider_email = available_rider.user.email
             subject = 'New Order Notification'
-            customer_name = f"{customer.CustomerName}"
+            customer_name = customer.CustomerName
             restaurant_name = cart_items.first().FoodID.restaurant.RestaurantName
             order_items = ", ".join(order_details)
             message = (
@@ -1486,37 +1489,38 @@ def place_order(request):
                 messages.error(request, "Failed to send email notification.")
                 print(f"Email send error: {e}")
 
-            # Store rider notifications in session
-            rider_notifications = request.session.get('rider_notifications', [])
-            rider_notifications.append({
+            # Store notification in session
+            request.session['rider_notifications'] = request.session.get('rider_notifications', [])
+            request.session['rider_notifications'].append({
                 'message': f"New order from {customer_name} at {restaurant_name}: {order_items}.",
                 'timestamp': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
             })
-            request.session['rider_notifications'] = rider_notifications
-        else:
-            messages.error(request, "No rider is assigned to this order.")
-            return redirect('customer_home')
 
-        # Calculate points earned based on total_amount
-        points_earned = 0
+        else:
+            # No available riders, pass a flag to display the SweetAlert
+            request.session['no_riders_available'] = True
+            return redirect('check_out')
+
+
+        # Calculate points earned
+        points_earned = Decimal(0)
         if total_amount < 50:
             points_earned = Decimal(0.1)
         elif 50 <= total_amount < 100:
             points_earned = Decimal(0.5)
         else:
             points_earned = (total_amount // Decimal(100)) * Decimal(1.0)
-            remaining_amount = total_amount % Decimal(100)
-            if remaining_amount >= Decimal(50):
+            if total_amount % Decimal(100) >= Decimal(50):
                 points_earned += Decimal(0.5)
 
-        # Update customer's points
+        # Update customer points
         customer.Points += points_earned
         customer.save()
 
-        # Clear the cart after placing the order
+        # Clear the cart
         cart_items.delete()
 
-        # Show success message with points earned
+        # Success message with points earned
         messages.success(request, f"Your order has been placed successfully! You earned {points_earned:.1f} points.")
         return redirect('customer_home')
 
@@ -1642,6 +1646,7 @@ def order_history(request):
 
     # Pass the order details to the template
     return render(request, 'customer_order_history.html', {'orders': order_details})
+
 @login_required
 def submit_feedback(request, delivery_id):
     if request.method == 'POST':

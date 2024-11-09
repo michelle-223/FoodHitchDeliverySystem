@@ -117,7 +117,7 @@
 </head>
 <body>
   <div class="header">
-    <a href="javascript:void(0);" onclick="goBack()">
+    <a href="{% url 'view_cart' %}">
       <ion-icon name="arrow-back-outline"></ion-icon>
     </a>
     <h1 class="page-title">Checkout</h1>
@@ -183,7 +183,22 @@
     </form>
   </div>
 
+  {% if request.session.no_riders_available %}
   <script>
+    Swal.fire({
+      icon: 'error',
+      title: 'No Riders Available',
+      text: 'Sorry, there are no available riders for delivery at the moment. Please try again later.',
+    });
+  </script>
+{% endif %}
+
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <script>
+
+
     function goBack() {
       window.history.back(); // Navigate to the previous page
     }
@@ -406,6 +421,9 @@
 
         // Load autocomplete when the page is loaded
         window.onload = initAutocomplete;
+
+
+  
   </script>
 </body>
 </html>
