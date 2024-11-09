@@ -1675,18 +1675,20 @@ def submit_feedback(request, delivery_id):
         return redirect('customer_home')
 
     return render(request, 'customer_feedback.html', {'delivery_id': delivery_id})
+
 def logout_view(request):
     if request.user.is_authenticated:
         # Check if the user is a rider
         try:
             rider = Rider.objects.get(user=request.user)
-            rider.Availability = 'unavailable'  # Set availability to unavailable on logout
-            rider.save()
+            # Remove the line that sets availability to 'unavailable'
+            # rider.Availability = 'unavailable'  # This is not needed anymore
+            # rider.save()
         except Rider.DoesNotExist:
             pass  # If the user is not a rider, do nothing
 
-    logout(request) 
-    return redirect('foodhitch') 
+    logout(request)  # Log out the user
+    return redirect('foodhitch')  # Redirect to your desired page
 
 def get_notifications():
     notifications = []

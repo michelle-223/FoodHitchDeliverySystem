@@ -102,16 +102,19 @@
            
             <!-- Toggle Switch for Availability -->
 <!-- Toggle Switch for Availability -->
-            <div class="toggle-container">
-                <ion-icon name="checkmark-circle-outline" style="color: #fff; margin-left: 5px; font-size: 21.5px;"></ion-icon> <!-- Ion Icon for Status -->
-                <label for="availability-toggle" style="color: #fff; margin-left: 15px;">Status</label>
-                <label class="toggle-switch">
-                    <!-- Check if availability is 'available' and set the checkbox accordingly -->
-                    <input type="checkbox" id="availability-toggle" name="availability" {% if rider.Availability == 'available' %} checked {% endif %}>
-                    <span class="slider"></span>
-                </label>
-            </div>
+<!-- rider_base.html -->
+<div class="toggle-container">
+    <ion-icon name="checkmark-circle-outline" style="color: #fff; margin-left: 5px; font-size: 21.5px;"></ion-icon> <!-- Ion Icon for Status -->
+    <label for="availability-toggle" style="color: #fff; margin-left: 15px;">Status</label>
+    <label class="toggle-switch">
+        <!-- Check if availability is 'available' and set the checkbox accordingly -->
+<!-- rider_base.html -->
+<input type="checkbox" id="availability-toggle" name="availability" {% if rider.Availability == 'available' %} checked {% endif %}>
+        <span class="slider"></span>
+    </label>
+</div>
         </div>
+
 
         <div class="sidebar-logout">
             <a href="{% url 'logout' %}"><ion-icon name="exit-outline"></ion-icon>Logout</a>
@@ -144,43 +147,49 @@
 
 <script>
     document.getElementById('availability-toggle').addEventListener('change', function() {
-    let availabilityStatus = this.checked ? 'available' : 'unavailable'; // Updated values
-    let csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value; // Get CSRF token
+        let availabilityStatus = this.checked ? 'available' : 'unavailable'; // Get the new availability status
+        let csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value; // CSRF token
 
-    // AJAX request to update availability status
-    fetch("{% url 'update_availability' %}", {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({
-            'availability': availabilityStatus // Use the updated status
+        // AJAX request to update availability status
+        fetch("{% url 'update_availability' %}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken  // Send CSRF token
+            },
+            body: JSON.stringify({
+                'availability': availabilityStatus // Send the availability status
+            })
         })
-    })
-    .then(response => response.json())
-    .then(data => {
-        console.log(data); // Log the response
-        if (data.success) {
-            const icon = this.checked ? 'success' : 'error'; // Use this.checked for icon
-            Swal.fire({
-                icon: icon,
-                title: `You are now ${availabilityStatus}!`,
-                showConfirmButton: false,
-                timer: 2500
-            });
-        } else {
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const icon = (this.checked) ? 'success' : 'error'; // Show success or error icon
+                Swal.fire({
+                    icon: icon,
+                    title: `You are now ${availabilityStatus}!`,
+                    showConfirmButton: false,
+                    timer: 2500
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Oops...',
+                    text: 'Failed to update availability.'
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
             Swal.fire({
                 icon: 'error',
-                title: 'Oops...',
-                text: 'Failed to update availability.'
+                title: 'Network Error',
+                text: 'Unable to update availability due to a network issue.'
             });
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
+        });
     });
-});
 </script>
+
+
 </body>
 </html>
